@@ -19,15 +19,20 @@ uint64_t ledOnTime = 0;
 
 static const char *TAG = "LED_CONTROL";
 
-uint64_t millis() {
-    return esp_timer_get_time() / 1000;
+uint64_t get_now_time() {
+    uint64_t current_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+    ESP_LOGI(TAG, "Time: %llu", current_ms);
+    fflush(stdout);
+    return current_ms;
 }
 
 void turnOff() {
-    uint64_t currentTime = millis();
+    uint64_t currentTime = get_now_time();
+
+            // ESP_LOGI(TAG, "Current time: %d", currentTime);
     if (state && (currentTime - ledOnTime >= BLINK_DELAY_MS)) {
         state = false;
-        for(int i = 0; i < 10; i++) {
+        for(int i = 0; i < 5; i++) {
             gpio_set_level(LED_PIN_BUTTON, 1);
             vTaskDelay(100 / portTICK_PERIOD_MS);
             gpio_set_level(LED_PIN_BUTTON, 0);
@@ -63,7 +68,7 @@ void app_main(void) {
             if (state) {
                 gpio_set_level(LED_PIN_BUTTON, 1);
                 gpio_set_level(LED_PIN_RELAY, 1);
-                ledOnTime = millis();
+                ledOnTime = get_now_time();
                 ESP_LOGI(TAG, "LED turned ON. Auto-off in %d ms", BLINK_DELAY_MS);
             } else {
                 gpio_set_level(LED_PIN_BUTTON, 0);
