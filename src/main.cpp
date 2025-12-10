@@ -6,33 +6,66 @@ extern "C" {
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_sleep.h"
 
 const gpio_num_t LED_PIN_BUTTON = GPIO_NUM_22;
 const gpio_num_t LED_PIN_RELAY = GPIO_NUM_32;
 const gpio_num_t BUTTON_PIN = GPIO_NUM_15;
 
-#define BLINK_DELAY_MS 5000
+#define BLINK_DELAY_MS 60000
+#define LONG_PRESS_MS 4000  // 4 seconds
+#define SLEEP_TIMEOUT_MS 40000  // 40 seconds to sleep
 
+typedef enum {
+    BLINKS_OFF = 8,
+    BLINKS_3 = 3,
+    BLINKS_5 = 5,
+    BLINKS_10 = 10
+} num_signal_blinks_t;
+
+
+uint64_t lastActivityTime = 0;  // Track last button press
 bool state = false;
 bool buttonPressed = false;
 uint64_t ledOnTime = 0;
+
+uint64_t buttonPressStartTime = 0;
+bool longPressDetected = false;
 
 static const char *TAG = "LED_CONTROL";
 
 uint64_t get_now_time() {
     uint64_t current_ms = pdTICKS_TO_MS(xTaskGetTickCount());
-    ESP_LOGI(TAG, "Time: %llu", current_ms);
+    // ESP_LOGI(TAG, "Time: %llu", current_ms);
     fflush(stdout);
     return current_ms;
 }
 
-void turnOff() {
+
+void checkAndEnterSleep() {
+    uint64_t currentTime = get_now_time();
+    
+    if ((currentTime - lastActivityTime) >= SLEEP_TIMEOUT_MS) {
+        ESP_LOGI(TAG, "No activity for %d ms. Entering deep sleep...", SLEEP_TIMEOUT_MS);
+        
+        // Turn off LEDs before sleeping
+        gpio_set_level(LED_PIN_BUTTON, 0);
+        gpio_set_level(LED_PIN_RELAY, 0);
+        
+        // Configure wakeup source
+        esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 1);  // Wake on HIGH (button release)
+        
+        // Go to deep sleep
+        esp_deep_sleep_start();
+    }
+}
+void turnOff(num_signal_blinks_t blink_count) {
     uint64_t currentTime = get_now_time();
 
             // ESP_LOGI(TAG, "Current time: %d", currentTime);
     if (state && (currentTime - ledOnTime >= BLINK_DELAY_MS)) {
         state = false;
-        for(int i = 0; i < 5; i++) {
+        for(int i = 0; i < blink_count; i++) {
             gpio_set_level(LED_PIN_BUTTON, 1);
             vTaskDelay(100 / portTICK_PERIOD_MS);
             gpio_set_level(LED_PIN_BUTTON, 0);
@@ -59,17 +92,24 @@ void app_main(void) {
     ESP_LOGI(TAG, "System started. Press button to toggle LED.");
 
     while (1) {
-        int buttonState = gpio_get_level(BUTTON_PIN);
+        int buttonState = !gpio_get_level(BUTTON_PIN);
+        // ESP_LOGI(TAG, "Button state is %d ", buttonState);
 
         // Button pressed = LOW (0) with pull-up
-        if (buttonState == 1 && !buttonPressed) {
+        if (buttonState == 0 && !buttonPressed) {
             state = !state;
+
+            
+
+
             
             if (state) {
+                esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 1);//wake up on sleep
                 gpio_set_level(LED_PIN_BUTTON, 1);
                 gpio_set_level(LED_PIN_RELAY, 1);
                 ledOnTime = get_now_time();
                 ESP_LOGI(TAG, "LED turned ON. Auto-off in %d ms", BLINK_DELAY_MS);
+
             } else {
                 gpio_set_level(LED_PIN_BUTTON, 0);
                 gpio_set_level(LED_PIN_RELAY, 0);
@@ -78,7 +118,12 @@ void app_main(void) {
             
             ESP_LOGI(TAG, "Current state: %s", state ? "ON" : "OFF");
             buttonPressed = true;
+
+           
+
+          
             vTaskDelay(300 / portTICK_PERIOD_MS);
+
         }
         
         // Button released = HIGH (1)
@@ -87,7 +132,11 @@ void app_main(void) {
             ESP_LOGI(TAG, "Button released");
         }
         
-        turnOff();
+        turnOff(BLINKS_5);
+        buttonPressStartTime = get_now_time();
+        ESP_LOGI(TAG, "Time: %llu", buttonPressStartTime);
+        checkAndEnterSleep();
+   
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
