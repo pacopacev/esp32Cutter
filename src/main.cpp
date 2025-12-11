@@ -6,12 +6,18 @@ extern "C" {
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "Helper.h"
 
 
-const gpio_num_t LED_PIN_BUTTON = GPIO_NUM_22;
-const gpio_num_t LED_PIN_RELAY = GPIO_NUM_32;
 const gpio_num_t BUTTON_PIN = GPIO_NUM_15;
-const gpio_num_t LED_PIN_STANDBY = GPIO_NUM_25;  // Add this pin
+
+
+
+const gpio_num_t LED_PIN_RELAY_RED = GPIO_NUM_32;
+
+
+const gpio_num_t LED_PIN_BUTTON_GREEN = GPIO_NUM_22;
+const gpio_num_t LED_PIN_STANDBY_RED = GPIO_NUM_25;  // Add this pin
 
 #define BLINK_DELAY_MS 60000  // Auto-off after 60 seconds (main timer)
 #define INACTIVITY_TIMEOUT_MS 10000  // Turn off after 20 seconds inactivity
@@ -39,15 +45,16 @@ uint64_t lastActivityTime = 0;
 
 static const char *TAG = "LED_CONTROL";
 
-uint64_t get_now_time() {
-    uint64_t current_ms = pdTICKS_TO_MS(xTaskGetTickCount());
-    // ESP_LOGI(TAG, "Time: %llu", current_ms);
-    fflush(stdout);
-    return current_ms;
-}
+
+// uint64_t get_now_time() {
+//     uint64_t current_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+//     // ESP_LOGI(TAG, "Time: %llu", current_ms);
+//     fflush(stdout);
+//     return current_ms;
+// }
 
 void checkInactivity(num_signal_blinks_t blink_count) {
-    uint64_t currentTime = get_now_time();
+    uint64_t currentTime = Helper::get_now_time();
     uint64_t inactiveTime = currentTime - lastActivityTime;
     
     // Check if approaching inactivity timeout
@@ -56,7 +63,7 @@ void checkInactivity(num_signal_blinks_t blink_count) {
         // Blink faster to indicate approaching timeout
         static uint64_t lastBlink = 0;
         if ((currentTime - lastBlink) > 200) {  // Fast blink (5 Hz)
-            gpio_set_level(LED_PIN_BUTTON, !gpio_get_level(LED_PIN_BUTTON));
+            gpio_set_level(LED_PIN_BUTTON_GREEN, !gpio_get_level(LED_PIN_BUTTON_GREEN));
             lastBlink = currentTime;
             ESP_LOGI(TAG, "Inactivity warning: %llu ms remaining", 
                      INACTIVITY_TIMEOUT_MS - inactiveTime);
@@ -68,49 +75,54 @@ void checkInactivity(num_signal_blinks_t blink_count) {
         ESP_LOGI(TAG, "20 seconds inactivity - turning off LED");
         state = false;
         
+        // Turn off both LEDs
+        gpio_set_level(LED_PIN_RELAY_RED, 0);      // Add this line
+        gpio_set_level(LED_PIN_BUTTON_GREEN, 0);   // Add this line
+        
         // Quick blink to indicate inactivity timeout
-        for(int i = 0; i < 2; i++) {
-            gpio_set_level(LED_PIN_BUTTON, 1);
-            vTaskDelay(50 / portTICK_PERIOD_MS);
-            gpio_set_level(LED_PIN_BUTTON, 0);
+        for(int i = 0; i < BLINKS_5; i++) {
+            gpio_set_level(LED_PIN_STANDBY_RED, 1);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            gpio_set_level(LED_PIN_STANDBY_RED, 0);
             vTaskDelay(50 / portTICK_PERIOD_MS);
         }
         
-        gpio_set_level(LED_PIN_RELAY, 0);
+        // Turn standby LED back on
+        gpio_set_level(LED_PIN_STANDBY_RED, 1);
+        
         ESP_LOGI(TAG, "LED turned OFF due to inactivity");
-        gpio_set_level(LED_PIN_STANDBY, 1);
     }
 }
 
-void turnOff(num_signal_blinks_t blink_count) {
-    uint64_t currentTime = get_now_time();
+// void turnOff(num_signal_blinks_t blink_count) {
+//     uint64_t currentTime = Helper::get_now_time();
 
-            // ESP_LOGI(TAG, "Current time: %d", currentTime);
-    if (state && (currentTime - ledOnTime >= BLINK_DELAY_MS)) {
-        state = false;
-        for(int i = 0; i < blink_count; i++) {
-            gpio_set_level(LED_PIN_BUTTON, 1);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-            gpio_set_level(LED_PIN_BUTTON, 0);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-        }
-        gpio_set_level(LED_PIN_RELAY, 0);
-        ESP_LOGI(TAG, "Auto-off: LED turned OFF after %d ms", BLINK_DELAY_MS);
-    }
-}
+//             // ESP_LOGI(TAG, "Current time: %d", currentTime);
+//     if (state && (currentTime - ledOnTime >= BLINK_DELAY_MS)) {
+//         state = false;
+//         for(int i = 0; i < blink_count; i++) {
+//             gpio_set_level(LED_PIN_BUTTON_GREEN, 1);
+//             vTaskDelay(100 / portTICK_PERIOD_MS);
+//             gpio_set_level(LED_PIN_BUTTON_GREEN, 0);
+//             vTaskDelay(100 / portTICK_PERIOD_MS);
+//         }
+//         gpio_set_level(LED_PIN_RELAY_RED, 0);
+//         ESP_LOGI(TAG, "Auto-off: LED turned OFF after %d ms", BLINK_DELAY_MS);
+//     }
+// }
 
 void app_main(void) {
-    gpio_reset_pin(LED_PIN_RELAY);
-    gpio_set_direction(LED_PIN_RELAY, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_PIN_RELAY, 0);
+    gpio_reset_pin(LED_PIN_RELAY_RED);
+    gpio_set_direction(LED_PIN_RELAY_RED, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_PIN_RELAY_RED, 0);
 
-    gpio_reset_pin(LED_PIN_BUTTON);
-    gpio_set_direction(LED_PIN_BUTTON, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_PIN_BUTTON, 0);
+    gpio_reset_pin(LED_PIN_BUTTON_GREEN);
+    gpio_set_direction(LED_PIN_BUTTON_GREEN, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_PIN_BUTTON_GREEN, 0);
 
-    gpio_reset_pin(LED_PIN_STANDBY);
-    gpio_set_direction(LED_PIN_STANDBY, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_PIN_STANDBY, 1);
+    gpio_reset_pin(LED_PIN_STANDBY_RED);
+    gpio_set_direction(LED_PIN_STANDBY_RED, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_PIN_STANDBY_RED, 1);
 
     gpio_reset_pin(BUTTON_PIN);
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
@@ -122,7 +134,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "Inactivity timeout: %d seconds", INACTIVITY_TIMEOUT_MS / 1000);
 
         // Initialize last activity time
-    lastActivityTime = get_now_time();
+    lastActivityTime = Helper::get_now_time();
 
     while (1) {
         int buttonState = !gpio_get_level(BUTTON_PIN);
@@ -130,9 +142,9 @@ void app_main(void) {
 
         // Button pressed = LOW (0) with pull-up
         if (buttonState == 0 && !buttonPressed) {
-            gpio_set_level(LED_PIN_STANDBY, 0);
+            gpio_set_level(LED_PIN_STANDBY_RED, 0);
             // Update activity timestamp - reset inactivity timer
-            lastActivityTime = get_now_time();
+            lastActivityTime = Helper::get_now_time();
             state = !state;
 
             
@@ -141,15 +153,16 @@ void app_main(void) {
             
             if (state) {
 
-                gpio_set_level(LED_PIN_BUTTON, 1);
-                gpio_set_level(LED_PIN_RELAY, 1);
-                ledOnTime = get_now_time();
+                gpio_set_level(LED_PIN_BUTTON_GREEN, 1);
+                gpio_set_level(LED_PIN_RELAY_RED, 1);
+                ledOnTime = Helper::get_now_time();
                 ESP_LOGI(TAG, "LED ON. Timers: %ds auto-off, %ds inactivity", 
                          BLINK_DELAY_MS / 1000, INACTIVITY_TIMEOUT_MS / 1000);
 
             } else {
-                gpio_set_level(LED_PIN_BUTTON, 0);
-                gpio_set_level(LED_PIN_RELAY, 0);
+                gpio_set_level(LED_PIN_BUTTON_GREEN, 0);
+                gpio_set_level(LED_PIN_RELAY_RED, 0);
+                gpio_set_level(LED_PIN_STANDBY_RED, 1);
                 ESP_LOGI(TAG, "LED turned OFF manually.");
             }
             
@@ -169,8 +182,8 @@ void app_main(void) {
             ESP_LOGI(TAG, "Button released");
         }
         
-        turnOff(BLINKS_OFF);
-            buttonPressStartTime = get_now_time();
+        // turnOff(BLINKS_OFF);
+        //     buttonPressStartTime = Helper::get_now_time();
 
             // ESP_LOGI(TAG, "Time: %llu", buttonPressStartTime);
 
@@ -181,24 +194,24 @@ void app_main(void) {
         checkInactivity(BLINKS_OFF);
         
         // If LED is on, show normal blinking pattern based on activity
-        if (state) {
-            // gpio_set_level(LED_PIN_STANDBY, 0);
-            uint64_t currentTime = get_now_time();
-            uint64_t inactiveTime = currentTime - lastActivityTime;
+        // if (state) {
+        //     // gpio_set_level(LED_PIN_STANDBY_RED, 0);
+        //     uint64_t currentTime = Helper::get_now_time();
+        //     uint64_t inactiveTime = currentTime - lastActivityTime;
             
-            // Normal slow blink when recently active
-            static uint64_t lastNormalBlink = 0;
-            if (inactiveTime < 10000) {  // Active in last 10 seconds
-                if ((currentTime - lastNormalBlink) > 1000) {  // 1 Hz blink
-                    gpio_set_level(LED_PIN_BUTTON, !gpio_get_level(LED_PIN_BUTTON));
-                    lastNormalBlink = currentTime;
+        //     // Normal slow blink when recently active
+        //     static uint64_t lastNormalBlink = 0;
+        //     if (inactiveTime < 10000) {  // Active in last 10 seconds
+        //         if ((currentTime - lastNormalBlink) > 1000) {  // 1 Hz blink
+        //             gpio_set_level(LED_PIN_BUTTON_GREEN, !gpio_get_level(LED_PIN_BUTTON_GREEN));
+        //             lastNormalBlink = currentTime;
                     
-                }
-            } else {
-                // Keep LED solid after 10 seconds of no button presses
-                gpio_set_level(LED_PIN_BUTTON, 1);
-            }
-        }
+        //         }
+        //     } else {
+        //         // Keep LED solid after 10 seconds of no button presses
+        //         gpio_set_level(LED_PIN_BUTTON_GREEN, 0);
+        //     }
+        // }
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
