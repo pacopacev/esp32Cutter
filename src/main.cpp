@@ -1,5 +1,6 @@
 extern "C" {
 #include <stdio.h>
+#include <math.h>  // ADD THIS LINE
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -19,6 +20,9 @@ extern "C" {
 #define SHUNT_RESISTOR_OHMS 0.1f      // 0.1 ohm shunt resistor (most common)
 #define MAX_EXPECTED_CURRENT 3.2f     // 3.2A max for 0.1 ohm shunt
 
+// Cutter threshold
+#define CUTTER_THRESHOLD_MA 60.0f     // Cutter turns ON when current > 30mA
+
 // GPIO Pins
 const gpio_num_t BUTTON_PIN = GPIO_NUM_15;
 const gpio_num_t LED_PIN_CUTTER_YELLOW = GPIO_NUM_23;
@@ -28,7 +32,7 @@ const gpio_num_t LED_PIN_STANDBY_RED = GPIO_NUM_25;
 
 // Timers
 #define BLINK_DELAY_MS 60000          // Auto-off after 60 seconds
-#define INACTIVITY_TIMEOUT_MS 20000*3   // Turn off after 20 seconds inactivity
+#define INACTIVITY_TIMEOUT_MS 10000   // Turn off after 60 seconds inactivity (20*3)
 
 // ==================== GLOBAL VARIABLES ====================
 
@@ -45,6 +49,7 @@ uint64_t ledOnTime = 0;
 uint64_t buttonPressStartTime = 0;
 bool longPressDetected = false;
 uint64_t lastActivityTime = 0;
+bool cutter_is_on = false;  // Track cutter state
 
 static const char *TAG = "MAIN";
 ina219_dev_t ina219_dev;
@@ -56,10 +61,21 @@ uint64_t get_now_time_ms() {
 }
 
 void cutterOn() {
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    gpio_set_level(LED_PIN_CUTTER_YELLOW, 1);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    gpio_set_level(LED_PIN_CUTTER_YELLOW, 0);
+    if (!cutter_is_on) {
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN_CUTTER_YELLOW, 1);
+        cutter_is_on = true;
+        ESP_LOGI("CUTTER", "Cutter activated");
+    }
+}
+
+void cutterOff() {
+    if (cutter_is_on) {
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN_CUTTER_YELLOW, 0);
+        cutter_is_on = false;
+        ESP_LOGI("CUTTER", "Cutter deactivated");
+    }
 }
 
 void check_ina219_config() {
@@ -130,7 +146,6 @@ void test_ina219_with_load() {
     gpio_set_level(LED_PIN_RELAY_RED, 0);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     
-    float v1 = ina219_read_bus_voltage(&ina219_dev);
     float i1 = ina219_read_current(&ina219_dev);
     float s1 = ina219_read_shunt_voltage(&ina219_dev);
     
@@ -139,7 +154,6 @@ void test_ina219_with_load() {
     gpio_set_level(LED_PIN_RELAY_RED, 1);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     
-    float v2 = ina219_read_bus_voltage(&ina219_dev);
     float i2 = ina219_read_current(&ina219_dev);
     float s2 = ina219_read_shunt_voltage(&ina219_dev);
     
@@ -147,31 +161,24 @@ void test_ina219_with_load() {
     gpio_set_level(LED_PIN_RELAY_RED, 0);
     vTaskDelay(500 / portTICK_PERIOD_MS);
     
-    ESP_LOGI("TEST", "OFF: V=%.2fV, I=%.2fmA, Shunt=%.2fmV", v1, i1, s1);
-    ESP_LOGI("TEST", "ON:  V=%.2fV, I=%.2fmA, Shunt=%.2fmV", v2, i2, s2);
-    ESP_LOGI("TEST", "DIFF: ΔV=%.2fV, ΔI=%.2fmA, ΔShunt=%.2fmV", 
-             v2-v1, i2-i1, s2-s1);
-    
     // Calculate expected current from shunt voltage
     if (s2 > s1) {
         float shunt_diff_mv = s2 - s1;
         float expected_current_ma = (shunt_diff_mv / 1000.0f) / SHUNT_RESISTOR_OHMS * 1000.0f;
-        ESP_LOGI("TEST", "Expected current from shunt: %.1fmA", expected_current_ma);
-        ESP_LOGI("TEST", "Measured current: %.1fmA", i2-i1);
+        ESP_LOGI("TEST", "Current increase: %.1fmA (from shunt: %.1fmA)", i2-i1, expected_current_ma);
     }
 }
 
 void read_power_measurements() {
-    float voltage = ina219_read_bus_voltage(&ina219_dev);
+    // Read current and shunt voltage
     float current = ina219_read_current(&ina219_dev);
-    float power = ina219_read_power(&ina219_dev);
     float shunt = ina219_read_shunt_voltage(&ina219_dev);
     
-    // Always calculate current from shunt as backup
+    // Calculate current from shunt as backup
     float shunt_current_ma = (shunt / 1000.0f) / SHUNT_RESISTOR_OHMS * 1000.0f;
     
-    ESP_LOGI("POWER", "V: %.2fV, I: %.1fmA (shunt: %.1fmA), P: %.1fmW, Shunt: %.2fmV", 
-             voltage, current, shunt_current_ma, power, shunt);
+    ESP_LOGI("POWER", "Current: %.1fmA (shunt: %.1fmA), Shunt: %.2fmV", 
+             current, shunt_current_ma, shunt);
     
     if (current > 2000.0f || shunt_current_ma > 2000.0f) {
         ESP_LOGW("POWER", "! Overcurrent detected");
@@ -201,12 +208,13 @@ void checkInactivity(num_signal_blinks_t blink_count) {
         
         gpio_set_level(LED_PIN_WORK_GREEN, 0);
         gpio_set_level(LED_PIN_RELAY_RED, 0); 
+        cutterOff();  // Ensure cutter is off
         
         // Blink standby LED 5 times
         for(int i = 0; i < 5; i++) {
-            gpio_set_level(LED_PIN_STANDBY_RED, 1);
+            gpio_set_level(LED_PIN_WORK_GREEN, 1);
             vTaskDelay(100 / portTICK_PERIOD_MS);
-            gpio_set_level(LED_PIN_STANDBY_RED, 0);
+            gpio_set_level(LED_PIN_WORK_GREEN, 0);
             vTaskDelay(50 / portTICK_PERIOD_MS);
         }
         
@@ -242,6 +250,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "System starting...");
     ESP_LOGI(TAG, "Auto-off: %d seconds", BLINK_DELAY_MS / 1000);
     ESP_LOGI(TAG, "Inactivity timeout: %d seconds", INACTIVITY_TIMEOUT_MS / 1000);
+    ESP_LOGI(TAG, "Cutter threshold: %.0fmA", CUTTER_THRESHOLD_MA);
 
     // Initialize INA219
     ESP_LOGI(TAG, "Initializing INA219 sensor...");
@@ -258,8 +267,9 @@ void app_main(void) {
     lastActivityTime = Helper::get_now_time();
     uint32_t last_power_read = 0;
     uint32_t last_status_log = 0;
+    float last_logged_current = 0;
     
-    ESP_LOGI(TAG, "System ready. Press button to toggle cutter.");
+    ESP_LOGI(TAG, "System ready. Press button to toggle system.");
     
     while (1) {
         // Button handling
@@ -271,17 +281,35 @@ void app_main(void) {
             state = !state;
             
             if (state) {
+                // Turn ON relay and green LED
                 gpio_set_level(LED_PIN_WORK_GREEN, 1);
                 gpio_set_level(LED_PIN_RELAY_RED, 1);
-                cutterOn();
+                
+                // Wait for current to stabilize
+                vTaskDelay(200 / portTICK_PERIOD_MS);
+                
+                // Check current and control cutter
+                float current = ina219_read_current(&ina219_dev);
+                ESP_LOGI("CURRENT", "Initial current after relay ON: %.1fmA", current);
+                
+                if (current > CUTTER_THRESHOLD_MA) {
+                    ESP_LOGI("CUTTER", "Current > %.0fmA - Starting cutter", CUTTER_THRESHOLD_MA);
+                    cutterOn();
+                } else {
+                    ESP_LOGI("CUTTER", "Current ≤ %.0fmA - Cutter remains OFF", CUTTER_THRESHOLD_MA);
+                    cutterOff();
+                }
+                
                 ledOnTime = Helper::get_now_time();
-                ESP_LOGI(TAG, "Cutter ON. Timers: %ds auto-off, %ds inactivity", 
-                         BLINK_DELAY_MS / 1000, INACTIVITY_TIMEOUT_MS / 1000);
+                ESP_LOGI(TAG, "System ON. Current: %.1fmA", current);
+                
             } else {
+                // Turn everything OFF
                 gpio_set_level(LED_PIN_WORK_GREEN, 0);
                 gpio_set_level(LED_PIN_RELAY_RED, 0);
                 gpio_set_level(LED_PIN_STANDBY_RED, 1);
-                ESP_LOGI(TAG, "Cutter turned OFF manually.");
+                cutterOff();
+                ESP_LOGI(TAG, "System OFF");
             }
             
             ESP_LOGI(TAG, "State: %s", state ? "ON" : "OFF");
@@ -291,17 +319,33 @@ void app_main(void) {
         
         if (buttonState == 1 && buttonPressed) {
             buttonPressed = false;
-            ESP_LOGI(TAG, "Button released");
+        }
+        
+        // Continuous current monitoring while system is ON
+        if (state) {
+            float current = ina219_read_current(&ina219_dev);
+            
+            // Dynamic cutter control based on current
+            if (current > CUTTER_THRESHOLD_MA && !cutter_is_on) {
+                ESP_LOGI("CUTTER", "Current increased > %.0fmA - Starting cutter", CUTTER_THRESHOLD_MA);
+                cutterOn();
+            } else if (current <= CUTTER_THRESHOLD_MA && cutter_is_on) {
+                ESP_LOGI("CUTTER", "Current dropped ≤ %.0fmA - Stopping cutter", CUTTER_THRESHOLD_MA);
+                cutterOff();
+            }
+            
+            // Log current changes (every 2 seconds or when significant change)
+            if (get_now_time_ms() - last_power_read > 2000 || 
+                fabs(current - last_logged_current) > 5.0f) {
+                ESP_LOGI("MONITOR", "Current: %.1fmA, Cutter: %s", 
+                         current, cutter_is_on ? "ON" : "OFF");
+                last_logged_current = current;
+                last_power_read = get_now_time_ms();
+            }
         }
         
         // Check inactivity timeout
         checkInactivity(BLINKS_OFF);
-        
-        // Read power measurements every 2 seconds when cutter is on
-        if (state && (get_now_time_ms() - last_power_read > 2000)) {
-            read_power_measurements();
-            last_power_read = get_now_time_ms();
-        }
         
         // Log status every 30 seconds
         if (get_now_time_ms() - last_status_log > 30000) {
@@ -309,8 +353,8 @@ void app_main(void) {
                      state ? "ON" : "OFF", get_now_time_ms() / 1000);
             last_status_log = get_now_time_ms();
         }
-   
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        
+        vTaskDelay(50 / portTICK_PERIOD_MS);  // Increased delay for stability
     }
 }
 

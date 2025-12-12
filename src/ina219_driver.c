@@ -149,8 +149,8 @@ float ina219_read_current(ina219_dev_t *dev) {
     int16_t raw_current = (int16_t)i2c_read_register(dev, INA219_REG_CURRENT);
     
     // Debug information
-    ESP_LOGI("CURRENT_DEBUG", "Raw: %d (0x%04X), LSB: %.6f", 
-             raw_current, (uint16_t)raw_current, dev->current_lsb);
+    // ESP_LOGI("CURRENT_DEBUG", "Raw: %d (0x%04X), LSB: %.6f", 
+    //          raw_current, (uint16_t)raw_current, dev->current_lsb);
     
     // Calculate current using calibration
     float calculated_current = raw_current * dev->current_lsb * 1000.0f;  // mA
@@ -159,8 +159,8 @@ float ina219_read_current(ina219_dev_t *dev) {
     float shunt_mv = ina219_read_shunt_voltage(dev);
     float shunt_current = (shunt_mv / 1000.0f) / 0.1f * 1000.0f;  // Using 0.1Ω shunt
     
-    ESP_LOGI("CURRENT_DEBUG", "Calc: %.1fmA, FromShunt: %.1fmA", 
-             calculated_current, shunt_current);
+    // ESP_LOGI("CURRENT_DEBUG", "Calc: %.1fmA, FromShunt: %.1fmA", 
+    //          calculated_current, shunt_current);
     
     // Return shunt-based current if calculated is zero but shunt shows current
     if (fabs(calculated_current) < 0.1 && fabs(shunt_current) > 1.0) {
