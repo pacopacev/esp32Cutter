@@ -10,4 +10,5 @@ public:
     static uint64_t get_now_time();
 };
 
+
 #endif 
