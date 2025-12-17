@@ -32,7 +32,7 @@ const gpio_num_t LED_PIN_STANDBY_RED = GPIO_NUM_25;
 
 // Timers
 #define BLINK_DELAY_MS 60000          // Auto-off after 60 seconds
-#define INACTIVITY_TIMEOUT_MS 10000   // Turn off after 60 seconds inactivity (20*3)
+#define INACTIVITY_TIMEOUT_MS 20000   // Turn off after 60 seconds inactivity (20*3)
 
 // ==================== GLOBAL VARIABLES ====================
 
@@ -40,7 +40,8 @@ typedef enum {
     BLINKS_OFF = 5,
     BLINKS_3 = 3,
     BLINKS_5 = 5,
-    BLINKS_10 = 10
+    BLINKS_10 = 10,
+    BLINKS_13 = 13
 } num_signal_blinks_t;
 
 bool state = false;
@@ -207,17 +208,17 @@ void checkInactivity(num_signal_blinks_t blink_count) {
         state = false;
         
         gpio_set_level(LED_PIN_WORK_GREEN, 0);
-        gpio_set_level(LED_PIN_RELAY_RED, 0); 
+        gpio_set_level(LED_PIN_RELAY_RED, 1); 
         cutterOff();  // Ensure cutter is off
         
         // Blink standby LED 5 times
-        for(int i = 0; i < 5; i++) {
+        for(int i = 0; i < BLINKS_10; i++) {
             gpio_set_level(LED_PIN_WORK_GREEN, 1);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
             gpio_set_level(LED_PIN_WORK_GREEN, 0);
-            vTaskDelay(50 / portTICK_PERIOD_MS);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
         }
-        
+        gpio_set_level(LED_PIN_RELAY_RED, 0);
         gpio_set_level(LED_PIN_STANDBY_RED, 1);
         ESP_LOGI(TAG, "System turned OFF due to inactivity");
     }
@@ -286,7 +287,7 @@ void app_main(void) {
                 gpio_set_level(LED_PIN_RELAY_RED, 1);
                 
                 // Wait for current to stabilize
-                vTaskDelay(200 / portTICK_PERIOD_MS);
+                vTaskDelay(500 / portTICK_PERIOD_MS);
                 
                 // Check current and control cutter
                 float current = ina219_read_current(&ina219_dev);
