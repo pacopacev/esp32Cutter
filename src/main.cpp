@@ -32,7 +32,7 @@ const gpio_num_t LED_PIN_STANDBY_RED = GPIO_NUM_25;
 
 // Timers
 #define BLINK_DELAY_MS 60000          // Auto-off after 60 seconds
-#define INACTIVITY_TIMEOUT_MS 20000   // Turn off after 60 seconds inactivity (20*3)
+#define INACTIVITY_TIMEOUT_MS 60000   // Turn off after 60 seconds inactivity 
 
 // ==================== GLOBAL VARIABLES ====================
 
@@ -65,6 +65,7 @@ void cutterOn() {
     if (!cutter_is_on) {
         vTaskDelay(10 / portTICK_PERIOD_MS);
         gpio_set_level(LED_PIN_CUTTER_YELLOW, 1);
+        
         cutter_is_on = true;
         ESP_LOGI("CUTTER", "Cutter activated");
     }
@@ -73,6 +74,7 @@ void cutterOn() {
 void cutterOff() {
     if (cutter_is_on) {
         vTaskDelay(10 / portTICK_PERIOD_MS);
+        vTaskDelay(500 / portTICK_PERIOD_MS); // Stabilization delay
         gpio_set_level(LED_PIN_CUTTER_YELLOW, 0);
         cutter_is_on = false;
         ESP_LOGI("CUTTER", "Cutter deactivated");
