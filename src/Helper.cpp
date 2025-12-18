@@ -10,6 +10,8 @@ uint64_t Helper::get_now_time() {
     fflush(stdout);
     return current_ms;
 }
+
+
 }
 
 // #include "Helper.h"

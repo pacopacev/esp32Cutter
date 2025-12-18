@@ -62,24 +62,41 @@ uint64_t get_now_time_ms() {
 }
 
 void cutterOn() {
-    if (!cutter_is_on) {
+    // if (!cutter_is_on) {
         vTaskDelay(10 / portTICK_PERIOD_MS);
         gpio_set_level(LED_PIN_CUTTER_YELLOW, 1);
-        
         cutter_is_on = true;
         ESP_LOGI("CUTTER", "Cutter activated");
-    }
-}
 
-void cutterOff() {
-    if (cutter_is_on) {
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-        vTaskDelay(500 / portTICK_PERIOD_MS); // Stabilization delay
+
+        vTaskDelay(1500 / portTICK_PERIOD_MS);
         gpio_set_level(LED_PIN_CUTTER_YELLOW, 0);
         cutter_is_on = false;
+        vTaskDelay(100 / portTICK_PERIOD_MS);
         ESP_LOGI("CUTTER", "Cutter deactivated");
-    }
+        gpio_set_level(LED_PIN_RELAY_RED, 0);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN_WORK_GREEN, 0);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN_STANDBY_RED, 1);
+        state = false;
+        buttonPressed = false;
+        ESP_LOGI(TAG, "State123: %s", state ? "ON" : "OFF");
+        ESP_LOGI(TAG, "Button pressed123: %s", buttonPressed ? "true" : "false");
+      
+    // }
 }
+
+// void cutterOff() {
+//     if (cutter_is_on) {
+//         vTaskDelay(10 / portTICK_PERIOD_MS);
+//         vTaskDelay(500 / portTICK_PERIOD_MS); // Stabilization delay
+//         gpio_set_level(LED_PIN_CUTTER_YELLOW, 0);
+//         cutter_is_on = false;
+//         ESP_LOGI("CUTTER", "Cutter deactivated");
+        
+//     }
+// }
 
 void check_ina219_config() {
     uint16_t config = 0;
@@ -211,7 +228,7 @@ void checkInactivity(num_signal_blinks_t blink_count) {
         
         gpio_set_level(LED_PIN_WORK_GREEN, 0);
         gpio_set_level(LED_PIN_RELAY_RED, 1); 
-        cutterOff();  // Ensure cutter is off
+        // cutterOff();  // Ensure cutter is off
         
         // Blink standby LED 5 times
         for(int i = 0; i < BLINKS_10; i++) {
@@ -300,7 +317,7 @@ void app_main(void) {
                     cutterOn();
                 } else {
                     ESP_LOGI("CUTTER", "Current ≤ %.0fmA - Cutter remains OFF", CUTTER_THRESHOLD_MA);
-                    cutterOff();
+                    // cutterOff();
                 }
                 
                 ledOnTime = Helper::get_now_time();
@@ -311,7 +328,7 @@ void app_main(void) {
                 gpio_set_level(LED_PIN_WORK_GREEN, 0);
                 gpio_set_level(LED_PIN_RELAY_RED, 0);
                 gpio_set_level(LED_PIN_STANDBY_RED, 1);
-                cutterOff();
+                // cutterOff();
                 ESP_LOGI(TAG, "System OFF");
             }
             
@@ -332,9 +349,6 @@ void app_main(void) {
             if (current > CUTTER_THRESHOLD_MA && !cutter_is_on) {
                 ESP_LOGI("CUTTER", "Current increased > %.0fmA - Starting cutter", CUTTER_THRESHOLD_MA);
                 cutterOn();
-            } else if (current <= CUTTER_THRESHOLD_MA && cutter_is_on) {
-                ESP_LOGI("CUTTER", "Current dropped ≤ %.0fmA - Stopping cutter", CUTTER_THRESHOLD_MA);
-                cutterOff();
             }
             
             // Log current changes (every 2 seconds or when significant change)
