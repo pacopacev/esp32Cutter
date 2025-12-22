@@ -26,7 +26,7 @@ extern "C" {
 #define I2C_SCL_PIN 22
 #define SHUNT_RESISTOR_OHMS 0.1f
 #define MAX_EXPECTED_CURRENT 3.2f
-#define CUTTER_THRESHOLD_MA 66.0f
+#define CUTTER_THRESHOLD_MA 55.0f
 
 // GPIO Pins
 const gpio_num_t BUTTON_PIN = GPIO_NUM_15;
@@ -232,7 +232,19 @@ void checkInactivity(num_signal_blinks_t blink_count) {
 }
 
 // ==================== WIFI FUNCTIONS ====================
-
+// Event handler за IP
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data) {
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        
+        // Форматиране на IP адрес
+        sprintf(ip_address, IPSTR, IP2STR(&event->ip_info.ip));
+        
+        ESP_LOGI("WIFI", "Got IP: %s", ip_address);
+        ESP_LOGI("WIFI", "Gateway: " IPSTR, IP2STR(&event->ip_info.gw));
+    }
+}
 void wifi_init_simple(void) {
     ESP_LOGI(WIFI_TAG, "Starting WiFi for OTA...");
     
@@ -246,6 +258,9 @@ void wifi_init_simple(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
+
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
+                                               &wifi_event_handler, NULL));
     
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -266,6 +281,12 @@ void wifi_init_simple(void) {
         wifi_ap_record_t ap_info;
         if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
             wifi_connected = true;
+            ESP_LOGI(TAG, "--- Access Point Information ---");
+            ESP_LOG_BUFFER_HEX("MAC Address", ap_info.bssid, sizeof(ap_info.bssid));
+            ESP_LOG_BUFFER_CHAR("SSID", ap_info.ssid, sizeof(ap_info.ssid));
+            ESP_LOGI(TAG, "Primary Channel: %d", ap_info.primary);
+            ESP_LOGI(TAG, "RSSI: %d", ap_info.rssi);
+
             gpio_set_level(LED_PIN_WIFI_BLUE, 1);
             
             esp_netif_ip_info_t ip_info;
